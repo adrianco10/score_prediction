@@ -1,0 +1,3 @@
+Program that uses Python and Poisson formula along with 2020/2021 La Liga stats to calculate and predict match outcomes.
+
+Built using streamlit
