@@ -166,7 +166,7 @@ def prediction():
         away = [r_col.selectbox('Away team', (team_averages_df['Squad']))]
         # if team_averages_df['Squad'].isin(away).any():
         #     r_col.write(atk_def.loc[away, ['away_atk_str', 'away_def_str']])
-        submitted = st.form_submit_button("Calculate")
+        submitted = l_col.form_submit_button("Calculate")
 
         if submitted:
             # stripping unwanted chars from string to be able to match in dataframe later
