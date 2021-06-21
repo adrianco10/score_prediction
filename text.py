@@ -6,11 +6,11 @@ from PIL import Image
 def intro():
     st.markdown(
         "I set out to create a soccer score and result prediction program using Poisson distribution and Python. "
-        "The Poisson Formula is a probablity theory that uses historical sports data to predict outcomes of sporting"
+        "The Poisson Formula is a probablity theory that can be used alongside historical sports data to predict outcomes of sporting"
         " events. ")
     st.markdown(
         "This can be done by other means of course and there are websites and calculators already out there "
-        "but since I have been learning the language for a couple of years"
+        "but since I have been learning Python for a couple of years"
         " now I wanted to challenge myself with a custom project."
         " Specifically the challenge was to use Python to program a tool to dynamically calculate the"
         " probability of any scorelinefor any given matchup between teams in the Spanish top flight (La Liga) and"
