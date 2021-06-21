@@ -220,7 +220,7 @@ def poisson():
                 " Perhaps in the future I will expand it but for now it's a good enough start since the "
                 "possibility of a 5+ goal game by any individual team is usually pretty low even in ideal conditions.")
     st.markdown(
-        "For an arbitrary example: even for the team with the highest scoring average at home (Barcelona) against a "
+        "As an example: even for the team with the highest scoring average at home (Barcelona) against a "
         "team with the highest average of goals conceded away (Granada) there is only about a 4.1% "
         "chance that Barcelona score 7 goals. If you were keen on placing a very risky (A.K.A unwise) bet of Barcelona "
         "scoring 7 goals in a game, you would have the best chances of winning that bet when Barcelona plays "
