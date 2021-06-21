@@ -19,7 +19,7 @@ def intro():
     st.markdown(
         "To be able to use the Poisson formula however we first need to gather quite a bit of data. What follows"
         " is an account of how I went about creating the tool including the code for each major section. So without "
-        "wasting any more time I'm just jumping right into it! To make sure I was doing everything right I used "
+        "wasting any more time I'm just jumping right into it!\n\n To make sure I was doing everything right I used "
         "this page as a guide:https://www.thepunterspage.com/poisson-distribution-betting/.")
 
     st.info("To reiterate: This page walks through the process and steps that I took to create the tool. If you "
