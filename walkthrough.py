@@ -157,7 +157,7 @@ def walkthrough():
     df2 = pd.DataFrame({'Average_home_goals/match': [avg_home_goals], 'Average_away_goals/match': [avg_away_goals]})
     df2.index = ['La Liga Teams']
 
-    st.title('Predicting La Liga scores and results using Python')
+    st.title('Predicting La Liga Scores and Results Using Python')
     ligateams = Image.open('La-Liga-teams.jpg')
     st.image(ligateams)
     text.intro()
