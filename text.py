@@ -13,7 +13,7 @@ def intro():
         "but since I have been learning Python for a couple of years"
         " now and I wanted to challenge myself with a custom project."
         " Specifically the challenge was to use Python to program a tool to dynamically calculate the"
-        " probability of any scorelinefor any given matchup between teams in the Spanish top flight (La Liga) and"
+        " probability of any scoreline for any given matchup between teams in the Spanish top flight (La Liga) and"
         " then use those stats to also predict the result of the game (home win, away win, and tie).")
 
     st.markdown(
@@ -256,7 +256,7 @@ def match_outcomes():
 
 
 def tell_me_odds():
-    st.subheader("Never tell me the odds")
+    st.subheader("Never Tell Me The Odds")
     st.markdown(
         "So with the table above we can determine what the most likely outcome for any given matchup"
         " is. We can take this a step futher though and also use the table to find the estimated chance of "
