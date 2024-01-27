@@ -155,7 +155,7 @@ def prediction():
     st.subheader("Choose a Home and Away team")
     atk_def = atk_def_strength(team_averages_df)
     atk_def = atk_def.set_index('Squad')
-    l_col, m_col, r_col = st.beta_columns(3)
+    l_col, m_col, r_col = st.columns(3)
     df2 = pd.DataFrame({'Average_home_goals/match': [avg_home_goals], 'Average_away_goals/match': [avg_away_goals]})
     df2.index = ['La Liga Teams']
 
