@@ -1,10 +1,10 @@
-# Copyright 2018-2021 Streamlit Inc.
+# Copyright (c) Streamlit Inc. (2018-2022) Snowflake Inc. (2022-2024)
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,21 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Optional
-from typing import cast
+from typing import TYPE_CHECKING, Optional, cast
 
-import streamlit
 from streamlit.proto.IFrame_pb2 import IFrame as IFrameProto
+from streamlit.runtime.metrics_util import gather_metrics
+
+if TYPE_CHECKING:
+    from streamlit.delta_generator import DeltaGenerator
 
 
 class IframeMixin:
+    @gather_metrics("_iframe")
     def _iframe(
         self,
-        src,
-        width=None,
-        height=None,
-        scrolling=False,
-    ):
+        src: str,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
+        scrolling: bool = False,
+    ) -> "DeltaGenerator":
         """Load a remote URL in an iframe.
 
         Parameters
@@ -34,7 +37,7 @@ class IframeMixin:
         src : str
             The URL of the page to embed.
         width : int
-            The width of the frame in CSS pixels. Defaults to the report's
+            The width of the frame in CSS pixels. Defaults to the app's
             default element width.
         height : int
             The height of the frame in CSS pixels. Defaults to 150.
@@ -53,13 +56,14 @@ class IframeMixin:
         )
         return self.dg._enqueue("iframe", iframe_proto)
 
+    @gather_metrics("_html")
     def _html(
         self,
-        html,
-        width=None,
-        height=None,
-        scrolling=False,
-    ):
+        html: str,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
+        scrolling: bool = False,
+    ) -> "DeltaGenerator":
         """Display an HTML string in an iframe.
 
         Parameters
@@ -67,7 +71,7 @@ class IframeMixin:
         html : str
             The HTML string to embed in the iframe.
         width : int
-            The width of the frame in CSS pixels. Defaults to the report's
+            The width of the frame in CSS pixels. Defaults to the app's
             default element width.
         height : int
             The height of the frame in CSS pixels. Defaults to 150.
@@ -87,13 +91,13 @@ class IframeMixin:
         return self.dg._enqueue("iframe", iframe_proto)
 
     @property
-    def dg(self) -> "streamlit.delta_generator.DeltaGenerator":
+    def dg(self) -> "DeltaGenerator":
         """Get our DeltaGenerator."""
-        return cast("streamlit.delta_generator.DeltaGenerator", self)
+        return cast("DeltaGenerator", self)
 
 
 def marshall(
-    proto,
+    proto: IFrameProto,
     src: Optional[str] = None,
     srcdoc: Optional[str] = None,
     width: Optional[int] = None,
@@ -115,7 +119,7 @@ def marshall(
     srcdoc : str
         Inline HTML to embed. Overrides src.
     width : int
-        The width of the frame in CSS pixels. Defaults to the report's
+        The width of the frame in CSS pixels. Defaults to the app's
         default element width.
     height : int
         The height of the frame in CSS pixels. Defaults to 150.

@@ -1,10 +1,10 @@
-# Copyright 2018-2021 Streamlit Inc.
+# Copyright (c) Streamlit Inc. (2018-2022) Snowflake Inc. (2022-2024)
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,20 +15,34 @@
 """Streamlit support for Matplotlib PyPlot charts."""
 
 import io
-from typing import cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
-import streamlit
+from typing_extensions import Final
+
 import streamlit.elements.image as image_utils
 from streamlit import config
 from streamlit.errors import StreamlitDeprecationWarning
 from streamlit.logger import get_logger
 from streamlit.proto.Image_pb2 import ImageList as ImageListProto
+from streamlit.runtime.metrics_util import gather_metrics
 
-LOGGER = get_logger(__name__)
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
+
+    from streamlit.delta_generator import DeltaGenerator
+
+LOGGER: Final = get_logger(__name__)
 
 
 class PyplotMixin:
-    def pyplot(self, fig=None, clear_figure=None, **kwargs):
+    @gather_metrics("pyplot")
+    def pyplot(
+        self,
+        fig: Optional["Figure"] = None,
+        clear_figure: Optional[bool] = None,
+        use_container_width: bool = True,
+        **kwargs: Any,
+    ) -> "DeltaGenerator":
         """Display a matplotlib.pyplot figure.
 
         Parameters
@@ -48,11 +62,15 @@ class PyplotMixin:
             * If `fig` is not set, defaults to `True`. This simulates Jupyter's
               approach to matplotlib rendering.
 
+        use_container_width : bool
+            If True, set the chart width to the column width. Defaults to `True`.
+
         **kwargs : any
             Arguments to pass to Matplotlib's savefig function.
 
         Example
         -------
+        >>> import streamlit as st
         >>> import matplotlib.pyplot as plt
         >>> import numpy as np
         >>>
@@ -63,8 +81,8 @@ class PyplotMixin:
         >>> st.pyplot(fig)
 
         .. output::
-           https://static.streamlit.io/0.25.0-2JkNY/index.html?id=PwzFN7oLZsvb6HDdwdjkRB
-           height: 530px
+           https://doc-pyplot.streamlit.app/
+           height: 630px
 
         Notes
         -----
@@ -75,9 +93,8 @@ class PyplotMixin:
            please always pass a figure object as shown in the example section
            above.
 
-        Matplotlib support several different types of "backends". If you're
-        getting an error using Matplotlib with Streamlit, try setting your
-        backend to "TkAgg"::
+        Matplotlib supports several types of "backends". If you're getting an
+        error using Matplotlib with Streamlit, try setting your backend to "TkAgg"::
 
             echo "backend: TkAgg" >> ~/.matplotlib/matplotlibrc
 
@@ -90,17 +107,29 @@ class PyplotMixin:
 
         image_list_proto = ImageListProto()
         marshall(
-            self.dg._get_delta_path_str(), image_list_proto, fig, clear_figure, **kwargs
+            self.dg._get_delta_path_str(),
+            image_list_proto,
+            fig,
+            clear_figure,
+            use_container_width,
+            **kwargs,
         )
         return self.dg._enqueue("imgs", image_list_proto)
 
     @property
-    def dg(self) -> "streamlit.delta_generator.DeltaGenerator":
+    def dg(self) -> "DeltaGenerator":
         """Get our DeltaGenerator."""
-        return cast("streamlit.delta_generator.DeltaGenerator", self)
+        return cast("DeltaGenerator", self)
 
 
-def marshall(coordinates, image_list_proto, fig=None, clear_figure=True, **kwargs):
+def marshall(
+    coordinates: str,
+    image_list_proto: ImageListProto,
+    fig: Optional["Figure"] = None,
+    clear_figure: Optional[bool] = True,
+    use_container_width: bool = True,
+    **kwargs: Any,
+) -> None:
     try:
         import matplotlib
         import matplotlib.pyplot as plt
@@ -115,28 +144,33 @@ def marshall(coordinates, image_list_proto, fig=None, clear_figure=True, **kwarg
         if clear_figure is None:
             clear_figure = True
 
-        fig = plt
+        fig = cast("Figure", plt)
 
     # Normally, dpi is set to 'figure', and the figure's dpi is set to 100.
     # So here we pick double of that to make things look good in a high
     # DPI display.
     options = {"bbox_inches": "tight", "dpi": 200, "format": "png"}
 
-    # If some of the options are passed in from kwargs then replace
-    # the values in options with the ones from kwargs
+    # If some options are passed in from kwargs then replace the values in
+    # options with the ones from kwargs
     options = {a: kwargs.get(a, b) for a, b in options.items()}
     # Merge options back into kwargs.
     kwargs.update(options)
 
     image = io.BytesIO()
     fig.savefig(image, **kwargs)
+    image_width = (
+        image_utils.WidthBehaviour.COLUMN
+        if use_container_width
+        else image_utils.WidthBehaviour.ORIGINAL
+    )
     image_utils.marshall_images(
-        coordinates,
-        image,
-        None,
-        -2,
-        image_list_proto,
-        False,
+        coordinates=coordinates,
+        image=image,
+        caption=None,
+        width=image_width,
+        proto_imgs=image_list_proto,
+        clamp=False,
         channels="RGB",
         output_format="PNG",
     )
@@ -148,12 +182,12 @@ def marshall(coordinates, image_list_proto, fig=None, clear_figure=True, **kwarg
 
 
 class PyplotGlobalUseWarning(StreamlitDeprecationWarning):
-    def __init__(self):
+    def __init__(self) -> None:
         super(PyplotGlobalUseWarning, self).__init__(
             msg=self._get_message(), config_option="deprecation.showPyplotGlobalUse"
         )
 
-    def _get_message(self):
+    def _get_message(self) -> str:
         return """
 You are calling `st.pyplot()` without any arguments. After December 1st, 2020,
 we will remove the ability to do this as it requires the use of Matplotlib's global

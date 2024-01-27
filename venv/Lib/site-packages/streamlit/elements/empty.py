@@ -1,10 +1,10 @@
-# Copyright 2018-2021 Streamlit Inc.
+# Copyright (c) Streamlit Inc. (2018-2022) Snowflake Inc. (2022-2024)
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,14 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
-import streamlit
 from streamlit.proto.Empty_pb2 import Empty as EmptyProto
+
+if TYPE_CHECKING:
+    from streamlit.delta_generator import DeltaGenerator
 
 
 class EmptyMixin:
-    def empty(self):
+    def empty(self) -> "DeltaGenerator":
         """Insert a single-element container.
 
         Inserts a container into your app that can be used to hold a single element.
@@ -32,9 +34,9 @@ class EmptyMixin:
 
         Examples
         --------
-
         Overwriting elements in-place using "with" notation:
 
+        >>> import streamlit as st
         >>> import time
         >>>
         >>> with st.empty():
@@ -45,6 +47,8 @@ class EmptyMixin:
 
         Replacing several elements, then clearing them:
 
+        >>> import streamlit as st
+        >>>
         >>> placeholder = st.empty()
         >>>
         >>> # Replace the placeholder with some text:
@@ -54,7 +58,7 @@ class EmptyMixin:
         >>> placeholder.line_chart({"data": [1, 5, 2, 6]})
         >>>
         >>> # Replace the chart with several elements:
-        >>> with placeholder.beta_container():
+        >>> with placeholder.container():
         ...     st.write("This is one element")
         ...     st.write("This is another")
         ...
@@ -66,6 +70,6 @@ class EmptyMixin:
         return self.dg._enqueue("empty", empty_proto)
 
     @property
-    def dg(self) -> "streamlit.delta_generator.DeltaGenerator":
+    def dg(self) -> "DeltaGenerator":
         """Get our DeltaGenerator."""
-        return cast("streamlit.delta_generator.DeltaGenerator", self)
+        return cast("DeltaGenerator", self)

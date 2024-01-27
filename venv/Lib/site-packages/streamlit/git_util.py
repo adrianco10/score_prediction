@@ -1,10 +1,10 @@
-# Copyright 2018-2021 Streamlit Inc.
+# Copyright (c) Streamlit Inc. (2018-2022) Snowflake Inc. (2022-2024)
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -14,7 +14,8 @@
 
 import os
 import re
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
+
 from streamlit import util
 
 # Github has two URLs, one that is https and one that is ssh
@@ -31,18 +32,22 @@ class GitRepo:
     def __init__(self, path):
         # If we have a valid repo, git_version will be a tuple of 3+ ints:
         # (major, minor, patch, possible_additional_patch_number)
-        self.git_version = None  # type: Optional[Tuple[int, ...]]
+        self.git_version: Optional[Tuple[int, ...]] = None
 
         try:
-            import git  # type: ignore[import]
+            import git
 
-            self.repo = git.Repo(path, search_parent_directories=True)
+            # GitPython is not fully typed, and mypy is outputting inconsistent
+            # type errors on Mac and Linux. We bypass type checking entirely
+            # by re-declaring the `git` import as an "Any".
+            git_package: Any = git
+            self.repo = git_package.Repo(path, search_parent_directories=True)
             self.git_version = self.repo.git.version_info
 
             if self.git_version >= MIN_GIT_VERSION:
                 git_root = self.repo.git.rev_parse("--show-toplevel")
                 self.module = os.path.relpath(path, git_root)
-        except:
+        except Exception:
             # The git repo must be invalid for the following reasons:
             #  * git binary or GitPython not installed
             #  * No .git folder
@@ -102,7 +107,7 @@ class GitRepo:
             remote_branch = "/".join([remote.name, branch_name])
 
             return list(self.repo.iter_commits(f"{remote_branch}..{branch_name}"))
-        except:
+        except Exception:
             return list()
 
     def get_tracking_branch_remote(self):

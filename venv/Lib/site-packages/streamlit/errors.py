@@ -1,10 +1,10 @@
-# Copyright 2018-2021 Streamlit Inc.
+# Copyright (c) Streamlit Inc. (2018-2022) Snowflake Inc. (2022-2024)
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,6 +16,13 @@ from streamlit import util
 
 
 class Error(Exception):
+    """The base class for all exceptions thrown by Streamlit.
+
+    Should be used for exceptions raised due to user errors (typically via
+    StreamlitAPIException) as well as exceptions raised by Streamlit's internal
+    code.
+    """
+
     pass
 
 
@@ -23,19 +30,15 @@ class DeprecationError(Error):
     pass
 
 
-class NoStaticFiles(Exception):
+class NoStaticFiles(Error):
     pass
 
 
-class S3NoCredentials(Exception):
+class NoSessionContext(Error):
     pass
 
 
-class NoSessionContext(Exception):
-    pass
-
-
-class MarkdownFormattedException(Exception):
+class MarkdownFormattedException(Error):
     """Exceptions with Markdown in their description.
 
     Instances of this class can use markdown in their messages, which will get
@@ -43,6 +46,13 @@ class MarkdownFormattedException(Exception):
     """
 
     pass
+
+
+class UncaughtAppException(Error):
+    """Catchall exception type for uncaught exceptions that occur during script execution."""
+
+    def __init__(self, exc):
+        self.exc = exc
 
 
 class StreamlitAPIException(MarkdownFormattedException):
@@ -59,13 +69,15 @@ class StreamlitAPIException(MarkdownFormattedException):
 
     """
 
-    pass
-
     def __repr__(self) -> str:
         return util.repr_(self)
 
 
 class DuplicateWidgetID(StreamlitAPIException):
+    pass
+
+
+class UnserializableSessionStateError(StreamlitAPIException):
     pass
 
 
@@ -108,7 +120,7 @@ st.set_option('{1}', False)
 or in your `.streamlit/config.toml`
 ```
 [deprecation]
-{2} = False
+{2} = false
 ```
     """.format(
             msg, config_option, config_option.split(".")[1]
@@ -116,7 +128,19 @@ or in your `.streamlit/config.toml`
         # TODO: create a deprecation docs page to add to deprecation msg #1669
         # For more details, please see: https://docs.streamlit.io/path/to/deprecation/docs.html
 
-        super(StreamlitAPIWarning, self).__init__(message, *args)
+        super().__init__(message, *args)
 
     def __repr__(self) -> str:
         return util.repr_(self)
+
+
+class StreamlitModuleNotFoundError(StreamlitAPIWarning):
+    """Print a pretty message when a Streamlit command requires a dependency
+    that is not one of our core dependencies."""
+
+    def __init__(self, module_name, *args):
+        message = (
+            f'This Streamlit command requires module "{module_name}" to be '
+            "installed."
+        )
+        super().__init__(message, *args)

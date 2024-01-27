@@ -1,10 +1,10 @@
-# Copyright 2018-2021 Streamlit Inc.
+# Copyright (c) Streamlit Inc. (2018-2022) Snowflake Inc. (2022-2024)
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -14,24 +14,23 @@
 
 import inspect
 import json
-import mimetypes
 import os
 import threading
 from typing import Any, Dict, Optional, Type, Union
 
-import tornado.web
-
-import streamlit.server.routes
-from streamlit import type_util
+import streamlit
+from streamlit import type_util, util
 from streamlit.elements.form import current_form_id
-from streamlit import util
 from streamlit.errors import StreamlitAPIException
 from streamlit.logger import get_logger
-from streamlit.proto.ArrowTable_pb2 import ArrowTable as ArrowTableProto
-from streamlit.proto.ComponentInstance_pb2 import SpecialArg
+from streamlit.proto.Components_pb2 import ArrowTable as ArrowTableProto
+from streamlit.proto.Components_pb2 import SpecialArg
 from streamlit.proto.Element_pb2 import Element
+from streamlit.runtime.metrics_util import gather_metrics
+from streamlit.runtime.scriptrunner import get_script_run_ctx
+from streamlit.runtime.state import NoValue, register_widget
+from streamlit.runtime.state.common import compute_widget_id
 from streamlit.type_util import to_bytes
-from streamlit.widgets import NoValue, register_widget
 
 LOGGER = get_logger(__name__)
 
@@ -80,6 +79,7 @@ class CustomComponent:
         """An alias for create_instance."""
         return self.create_instance(*args, default=default, key=key, **kwargs)
 
+    @gather_metrics("create_instance")
     def create_instance(
         self,
         *args,
@@ -115,31 +115,17 @@ class CustomComponent:
 
         try:
             import pyarrow
-            from streamlit.elements import arrow_table
+
+            from streamlit.components.v1 import component_arrow
         except ImportError:
-            import sys
-
-            if sys.version_info >= (3, 9):
-                raise StreamlitAPIException(
-                    """To use Custom Components in Streamlit, you need to install
-PyArrow. Unfortunately, PyArrow does not yet support Python 3.9.
-
-You can either switch to Python 3.8 with an environment manager like PyEnv, or stay on 3.9 by
-[installing Streamlit with conda](https://discuss.streamlit.io/t/note-installation-issues-with-python-3-9-and-streamlit/6946):
-
-`conda install -c conda-forge streamlit`
-
-"""
-                )
-            else:
-                raise StreamlitAPIException(
-                    """To use Custom Components in Streamlit, you need to install
+            raise StreamlitAPIException(
+                """To use Custom Components in Streamlit, you need to install
 PyArrow. To do so locally:
 
 `pip install pyarrow`
 
-And if you're using Streamlit Sharing, add "pyarrow" to your requirements.txt."""
-                )
+And if you're using Streamlit Cloud, add "pyarrow" to your requirements.txt."""
+            )
 
         # In addition to the custom kwargs passed to the component, we also
         # send the special 'default' and 'key' params to the component
@@ -157,16 +143,16 @@ And if you're using Streamlit Sharing, add "pyarrow" to your requirements.txt.""
             elif type_util.is_dataframe_like(arg_val):
                 dataframe_arg = SpecialArg()
                 dataframe_arg.key = arg_name
-                arrow_table.marshall(dataframe_arg.arrow_dataframe.data, arg_val)
+                component_arrow.marshall(dataframe_arg.arrow_dataframe.data, arg_val)
                 special_args.append(dataframe_arg)
             else:
                 json_args[arg_name] = arg_val
 
         try:
             serialized_json_args = json.dumps(json_args)
-        except BaseException as e:
+        except Exception as ex:
             raise MarshallComponentException(
-                "Could not convert component args to JSON", e
+                "Could not convert component args to JSON", ex
             )
 
         def marshall_component(dg, element: Element) -> Union[Any, Type[NoValue]]:
@@ -177,10 +163,9 @@ And if you're using Streamlit Sharing, add "pyarrow" to your requirements.txt.""
 
             # Normally, a widget's element_hash (which determines
             # its identity across multiple runs of an app) is computed
-            # by hashing the entirety of its protobuf. This means that,
-            # if any of the arguments to the widget are changed, Streamlit
-            # considers it a new widget instance and it loses its previous
-            # state.
+            # by hashing its arguments. This means that, if any of the arguments
+            # to the widget are changed, Streamlit considers it a new widget
+            # instance and it loses its previous state.
             #
             # However! If a *component* has a `key` argument, then the
             # component's hash identity is determined by entirely by
@@ -188,24 +173,52 @@ And if you're using Streamlit Sharing, add "pyarrow" to your requirements.txt.""
             # exists, the component will maintain its identity even when its
             # other arguments change, and the component's iframe won't be
             # remounted on the frontend.
-            #
-            # So: if `key` is None, we marshall the element's arguments
-            # *before* computing its widget_ui_value (which creates its hash).
-            # If `key` is not None, we marshall the arguments *after*.
 
             def marshall_element_args():
                 element.component_instance.json_args = serialized_json_args
                 element.component_instance.special_args.extend(special_args)
 
+            ctx = get_script_run_ctx()
+
             if key is None:
                 marshall_element_args()
+                id = compute_widget_id(
+                    "component_instance",
+                    user_key=key,
+                    name=self.name,
+                    form_id=current_form_id(dg),
+                    url=self.url,
+                    key=key,
+                    json_args=serialized_json_args,
+                    special_args=special_args,
+                    page=ctx.page_script_hash if ctx else None,
+                )
+            else:
+                id = compute_widget_id(
+                    "component_instance",
+                    user_key=key,
+                    name=self.name,
+                    form_id=current_form_id(dg),
+                    url=self.url,
+                    key=key,
+                    page=ctx.page_script_hash if ctx else None,
+                )
+            element.component_instance.id = id
 
-            widget_value = register_widget(
+            def deserialize_component(ui_value, widget_id=""):
+                # ui_value is an object from json, an ArrowTable proto, or a bytearray
+                return ui_value
+
+            component_state = register_widget(
                 element_type="component_instance",
                 element_proto=element.component_instance,
                 user_key=key,
                 widget_func_name=self.name,
+                deserializer=deserialize_component,
+                serializer=lambda x: x,
+                ctx=ctx,
             )
+            widget_value = component_state.value
 
             if key is not None:
                 marshall_element_args()
@@ -213,7 +226,7 @@ And if you're using Streamlit Sharing, add "pyarrow" to your requirements.txt.""
             if widget_value is None:
                 widget_value = default
             elif isinstance(widget_value, ArrowTableProto):
-                widget_value = arrow_table.arrow_proto_to_dataframe(widget_value)
+                widget_value = component_arrow.arrow_proto_to_dataframe(widget_value)
 
             # widget_value will be either None or whatever the component's most
             # recent setWidgetValue value is. We coerce None -> NoValue,
@@ -309,89 +322,9 @@ def declare_component(
     return component
 
 
-class ComponentRequestHandler(tornado.web.RequestHandler):
-    def initialize(self, registry: "ComponentRegistry"):
-        self._registry = registry
-
-    def get(self, path: str) -> None:
-        parts = path.split("/")
-        component_name = parts[0]
-        component_root = self._registry.get_component_path(component_name)
-        if component_root is None:
-            self.write("not found")
-            self.set_status(404)
-            return
-
-        filename = "/".join(parts[1:])
-        abspath = os.path.join(component_root, filename)
-
-        LOGGER.debug("ComponentRequestHandler: GET: %s -> %s", path, abspath)
-
-        try:
-            with open(abspath, "rb") as file:
-                contents = file.read()
-        except (OSError) as e:
-            LOGGER.error(f"ComponentRequestHandler: GET {path} read error", exc_info=e)
-            self.write("read error")
-            self.set_status(404)
-            return
-
-        self.write(contents)
-        self.set_header("Content-Type", self.get_content_type(abspath))
-
-        self.set_extra_headers(path)
-
-    def set_extra_headers(self, path) -> None:
-        """Disable cache for HTML files.
-
-        Other assets like JS and CSS are suffixed with their hash, so they can
-        be cached indefinitely.
-        """
-        is_index_url = len(path) == 0
-
-        if is_index_url or path.endswith(".html"):
-            self.set_header("Cache-Control", "no-cache")
-        else:
-            self.set_header("Cache-Control", "public")
-
-    def set_default_headers(self) -> None:
-        if streamlit.server.routes.allow_cross_origin_requests():
-            self.set_header("Access-Control-Allow-Origin", "*")
-
-    def options(self) -> None:
-        """/OPTIONS handler for preflight CORS checks."""
-        self.set_status(204)
-        self.finish()
-
-    @staticmethod
-    def get_content_type(abspath) -> str:
-        """Returns the ``Content-Type`` header to be used for this request.
-        From tornado.web.StaticFileHandler.
-        """
-        mime_type, encoding = mimetypes.guess_type(abspath)
-        # per RFC 6713, use the appropriate type for a gzip compressed file
-        if encoding == "gzip":
-            return "application/gzip"
-        # As of 2015-07-21 there is no bzip2 encoding defined at
-        # http://www.iana.org/assignments/media-types/media-types.xhtml
-        # So for that (and any other encoding), use octet-stream.
-        elif encoding is not None:
-            return "application/octet-stream"
-        elif mime_type is not None:
-            return mime_type
-        # if mime_type not detected, use application/octet-stream
-        else:
-            return "application/octet-stream"
-
-    @staticmethod
-    def get_url(file_id: str) -> str:
-        """Return the URL for a component file with the given ID."""
-        return "components/{}".format(file_id)
-
-
 class ComponentRegistry:
-    _instance_lock = threading.Lock()
-    _instance = None  # type: Optional[ComponentRegistry]
+    _instance_lock: threading.Lock = threading.Lock()
+    _instance: Optional["ComponentRegistry"] = None
 
     @classmethod
     def instance(cls) -> "ComponentRegistry":
@@ -406,7 +339,7 @@ class ComponentRegistry:
         return cls._instance
 
     def __init__(self):
-        self._components = {}  # type: Dict[str, CustomComponent]
+        self._components: Dict[str, CustomComponent] = {}
         self._lock = threading.Lock()
 
     def __repr__(self) -> str:

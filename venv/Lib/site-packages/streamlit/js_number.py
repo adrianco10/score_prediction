@@ -1,10 +1,10 @@
-# Copyright 2018-2021 Streamlit Inc.
+# Copyright (c) Streamlit Inc. (2018-2022) Snowflake Inc. (2022-2024)
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -21,9 +21,7 @@ class JSNumberBoundsException(Exception):
 
 
 class JSNumber(object):
-    """
-    Utility class. Exposes JavaScript Number constants.
-    """
+    """Utility class for exposing JavaScript Number constants."""
 
     # The largest int that can be represented with perfect precision
     # in JavaScript.
@@ -55,7 +53,7 @@ class JSNumber(object):
             in any exception that is thrown.
 
         Raises
-        -------
+        ------
         JSNumberBoundsException
             Raised with a human-readable explanation if the value falls outside
             JavaScript int bounds.
@@ -64,9 +62,7 @@ class JSNumber(object):
         if value_name is None:
             value_name = "value"
 
-        if not isinstance(value, numbers.Integral):
-            raise JSNumberBoundsException("%s (%s) is not an int" % (value_name, value))
-        elif value < cls.MIN_SAFE_INTEGER:  # type: ignore[misc]
+        if value < cls.MIN_SAFE_INTEGER:
             raise JSNumberBoundsException(
                 "%s (%s) must be >= -((1 << 53) - 1)" % (value_name, value)
             )
@@ -89,7 +85,7 @@ class JSNumber(object):
             in any exception that is thrown.
 
         Raises
-        -------
+        ------
         JSNumberBoundsException
             Raised with a human-readable explanation if the value falls outside
             JavaScript float bounds.

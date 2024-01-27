@@ -1,10 +1,10 @@
-# Copyright 2018-2021 Streamlit Inc.
+# Copyright (c) Streamlit Inc. (2018-2022) Snowflake Inc. (2022-2024)
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,21 +15,22 @@
 import socket
 from typing import Optional
 
-import requests
+from typing_extensions import Final
 
 from streamlit import util
-
 from streamlit.logger import get_logger
 
 LOGGER = get_logger(__name__)
 
-# URL for checking the current machine's external IP address.
-_AWS_CHECK_IP = "http://checkip.amazonaws.com"
+# URLs for checking the current machine's external IP address.
+_AWS_CHECK_IP: Final = "http://checkip.amazonaws.com"
+_AWS_CHECK_IP_HTTPS: Final = "https://checkip.amazonaws.com"
 
-_external_ip = None  # type: Optional[str]
+_external_ip: Optional[str] = None
+_internal_ip: Optional[str] = None
 
 
-def get_external_ip():
+def get_external_ip() -> Optional[str]:
     """Get the *external* IP address of the current machine.
 
     Returns
@@ -44,6 +45,9 @@ def get_external_ip():
         return _external_ip
 
     response = _make_blocking_http_get(_AWS_CHECK_IP, timeout=5)
+
+    if response is None:
+        response = _make_blocking_http_get(_AWS_CHECK_IP_HTTPS, timeout=5)
 
     if _looks_like_an_ip_adress(response):
         _external_ip = response
@@ -60,10 +64,7 @@ def get_external_ip():
     return _external_ip
 
 
-_internal_ip = None  # type: Optional[str]
-
-
-def get_internal_ip():
+def get_internal_ip() -> Optional[str]:
     """Get the *local* IP address of the current machine.
 
     From: https://stackoverflow.com/a/28950776
@@ -79,30 +80,30 @@ def get_internal_ip():
     if _internal_ip is not None:
         return _internal_ip
 
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        # Doesn't even have to be reachable
-        s.connect(("8.8.8.8", 1))
-        _internal_ip = s.getsockname()[0]
-    except Exception:
-        _internal_ip = "127.0.0.1"
-    finally:
-        s.close()
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        try:
+            # Doesn't even have to be reachable
+            s.connect(("8.8.8.8", 1))
+            _internal_ip = s.getsockname()[0]
+        except Exception:
+            _internal_ip = "127.0.0.1"
 
     return _internal_ip
 
 
-def _make_blocking_http_get(url, timeout=5):
+def _make_blocking_http_get(url: str, timeout: float = 5) -> Optional[str]:
+    import requests
+
     try:
         text = requests.get(url, timeout=timeout).text
         if isinstance(text, str):
             text = text.strip()
         return text
-    except Exception as e:
+    except Exception:
         return None
 
 
-def _looks_like_an_ip_adress(address):
+def _looks_like_an_ip_adress(address: Optional[str]) -> bool:
     if address is None:
         return False
 

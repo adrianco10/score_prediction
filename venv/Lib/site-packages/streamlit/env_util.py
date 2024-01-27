@@ -1,10 +1,10 @@
-# Copyright 2018-2021 Streamlit Inc.
+# Copyright (c) Streamlit Inc. (2018-2022) Snowflake Inc. (2022-2024)
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,7 +16,6 @@ import os
 import platform
 import re
 import sys
-
 
 _system = platform.system()
 IS_WINDOWS = _system == "Windows"
@@ -55,6 +54,6 @@ def is_repl():
 
 def is_executable_in_path(name):
     """Check if executable is in OS path."""
-    from distutils.spawn import find_executable
+    from shutil import which
 
-    return find_executable(name) is not None
+    return which(name) is not None

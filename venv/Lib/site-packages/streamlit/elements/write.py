@@ -1,10 +1,10 @@
-# Copyright 2018-2021 Streamlit Inc.
+# Copyright (c) Streamlit Inc. (2018-2022) Snowflake Inc. (2022-2024)
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,29 +12,42 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import dataclasses
+import inspect
 import json as json
 import types
-from typing import cast, Any, List, Tuple, Type
+from typing import TYPE_CHECKING, Any, List, Tuple, Type, cast
 
 import numpy as np
+from typing_extensions import Final
 
-import streamlit
 from streamlit import type_util
 from streamlit.errors import StreamlitAPIException
+from streamlit.logger import get_logger
+from streamlit.runtime.metrics_util import gather_metrics
+from streamlit.runtime.state import QueryParamsProxy, SessionStateProxy
+from streamlit.string_util import is_mem_address_str, probably_contains_html_tags
+from streamlit.user_info import UserInfoProxy
+
+if TYPE_CHECKING:
+    from streamlit.delta_generator import DeltaGenerator
+
 
 # Special methods:
-
-HELP_TYPES = (
+HELP_TYPES: Final[Tuple[Type[Any], ...]] = (
     types.BuiltinFunctionType,
     types.BuiltinMethodType,
     types.FunctionType,
     types.MethodType,
     types.ModuleType,
-)  # type: Tuple[Type[Any], ...]
+)
+
+_LOGGER = get_logger(__name__)
 
 
 class WriteMixin:
-    def write(self, *args, **kwargs):
+    @gather_metrics("write")
+    def write(self, *args: Any, unsafe_allow_html: bool = False, **kwargs) -> None:
         """Write arguments to the app.
 
         This is the Swiss Army knife of Streamlit commands: it does different
@@ -53,12 +66,13 @@ class WriteMixin:
             Arguments are handled as follows:
 
             - write(string)     : Prints the formatted Markdown string, with
-                support for LaTeX expression and emoji shortcodes.
+                support for LaTeX expression, emoji shortcodes, and colored text.
                 See docs for st.markdown for more.
             - write(data_frame) : Displays the DataFrame as a table.
             - write(error)      : Prints an exception specially.
             - write(func)       : Displays information about a function.
             - write(module)     : Displays information about the module.
+            - write(class)      : Displays information about a class.
             - write(dict)       : Displays dict in an interactive widget.
             - write(mpl_fig)    : Displays a Matplotlib figure.
             - write(altair)     : Displays an Altair chart.
@@ -83,31 +97,26 @@ class WriteMixin:
 
             https://github.com/streamlit/streamlit/issues/152
 
-            **Also note that `unsafe_allow_html` is a temporary measure and may be
-            removed from Streamlit at any time.**
-
-            If you decide to turn on HTML anyway, we ask you to please tell us your
-            exact use case here:
-            https://discuss.streamlit.io/t/96 .
-
-            This will help us come up with safe APIs that allow you to do what you
-            want.
-
         Example
         -------
 
         Its basic use case is to draw Markdown-formatted text, whenever the
         input is a string:
 
-        >>> write('Hello, *World!* :sunglasses:')
+        >>> import streamlit as st
+        >>>
+        >>> st.write('Hello, *World!* :sunglasses:')
 
         ..  output::
-            https://static.streamlit.io/0.50.2-ZWk9/index.html?id=Pn5sjhgNs4a8ZbiUoSTRxE
-            height: 50px
+            https://doc-write1.streamlit.app/
+            height: 150px
 
-        As mentioned earlier, `st.write()` also accepts other data formats, such as
+        As mentioned earlier, ``st.write()`` also accepts other data formats, such as
         numbers, data frames, styled data frames, and assorted objects:
 
+        >>> import streamlit as st
+        >>> import pandas as pd
+        >>>
         >>> st.write(1234)
         >>> st.write(pd.DataFrame({
         ...     'first column': [1, 2, 3, 4],
@@ -115,20 +124,23 @@ class WriteMixin:
         ... }))
 
         ..  output::
-            https://static.streamlit.io/0.25.0-2JkNY/index.html?id=FCp9AMJHwHRsWSiqMgUZGD
-            height: 250px
+            https://doc-write2.streamlit.app/
+            height: 350px
 
         Finally, you can pass in multiple arguments to do things like:
 
+        >>> import streamlit as st
+        >>>
         >>> st.write('1 + 1 = ', 2)
         >>> st.write('Below is a DataFrame:', data_frame, 'Above is a dataframe.')
 
         ..  output::
-            https://static.streamlit.io/0.25.0-2JkNY/index.html?id=DHkcU72sxYcGarkFbf4kK1
-            height: 300px
+            https://doc-write3.streamlit.app/
+            height: 410px
 
-        Oh, one more thing: `st.write` accepts chart objects too! For example:
+        Oh, one more thing: ``st.write`` accepts chart objects too! For example:
 
+        >>> import streamlit as st
         >>> import pandas as pd
         >>> import numpy as np
         >>> import altair as alt
@@ -143,12 +155,19 @@ class WriteMixin:
         >>> st.write(c)
 
         ..  output::
-            https://static.streamlit.io/0.25.0-2JkNY/index.html?id=8jmmXR8iKoZGV4kXaKGYV5
-            height: 200px
+            https://doc-vega-lite-chart.streamlit.app/
+            height: 300px
 
         """
-        string_buffer = []  # type: List[str]
-        unsafe_allow_html = kwargs.get("unsafe_allow_html", False)
+        if kwargs:
+            _LOGGER.warning(
+                'Invalid arguments were passed to "st.write" function. Support for '
+                "passing such unknown keywords arguments will be dropped in future. "
+                "Invalid arguments were: %s",
+                kwargs,
+            )
+
+        string_buffer: List[str] = []
 
         # This bans some valid cases like: e = st.empty(); e.write("a", "b").
         # BUT: 1) such cases are rare, 2) this rule is easy to understand,
@@ -173,6 +192,9 @@ class WriteMixin:
             # Order matters!
             if isinstance(arg, str):
                 string_buffer.append(arg)
+            elif type_util.is_snowpark_or_pyspark_data_object(arg):
+                flush_buffer()
+                self.dg.dataframe(arg)
             elif type_util.is_dataframe_like(arg):
                 flush_buffer()
                 if len(np.shape(arg)) > 2:
@@ -183,6 +205,9 @@ class WriteMixin:
                 flush_buffer()
                 self.dg.exception(arg)
             elif isinstance(arg, HELP_TYPES):
+                flush_buffer()
+                self.dg.help(arg)
+            elif dataclasses.is_dataclass(arg):
                 flush_buffer()
                 self.dg.help(arg)
             elif type_util.is_altair_chart(arg):
@@ -209,7 +234,9 @@ class WriteMixin:
                 flush_buffer()
                 dot = vis_utils.model_to_dot(arg)
                 self.dg.graphviz_chart(dot.to_string())
-            elif isinstance(arg, (dict, list)):
+            elif isinstance(
+                arg, (dict, list, SessionStateProxy, UserInfoProxy, QueryParamsProxy)
+            ):
                 flush_buffer()
                 self.dg.json(arg)
             elif type_util.is_namedtuple(arg):
@@ -218,17 +245,31 @@ class WriteMixin:
             elif type_util.is_pydeck(arg):
                 flush_buffer()
                 self.dg.pydeck_chart(arg)
+            elif inspect.isclass(arg):
+                flush_buffer()
+                # We cast arg to type here to appease mypy, due to bug in mypy:
+                # https://github.com/python/mypy/issues/12933
+                self.dg.help(cast(type, arg))
             elif hasattr(arg, "_repr_html_"):
-                self.dg.markdown(
-                    arg._repr_html_(),
-                    unsafe_allow_html=True,
+                repr_html = arg._repr_html_()
+                unsafe_allow_html = unsafe_allow_html or probably_contains_html_tags(
+                    repr_html
                 )
+
+                self.dg.markdown(repr_html, unsafe_allow_html=unsafe_allow_html)
             else:
-                string_buffer.append("`%s`" % str(arg).replace("`", "\\`"))
+                stringified_arg = str(arg)
+
+                if is_mem_address_str(stringified_arg):
+                    flush_buffer()
+                    self.dg.help(arg)
+
+                else:
+                    string_buffer.append("`%s`" % stringified_arg.replace("`", "\\`"))
 
         flush_buffer()
 
     @property
-    def dg(self) -> "streamlit.delta_generator.DeltaGenerator":
+    def dg(self) -> "DeltaGenerator":
         """Get our DeltaGenerator."""
-        return cast("streamlit.delta_generator.DeltaGenerator", self)
+        return cast("DeltaGenerator", self)

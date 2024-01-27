@@ -1,10 +1,10 @@
-# Copyright 2018-2021 Streamlit Inc.
+# Copyright (c) Streamlit Inc. (2018-2022) Snowflake Inc. (2022-2024)
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,19 +18,15 @@ import copy
 import os
 import secrets
 import threading
-import toml
-import urllib
 from collections import OrderedDict
-from typing import Any, Callable, cast, Dict, Optional, Union
+from typing import Any, Callable, Dict, Optional, cast
 
+import toml
 from blinker import Signal
 
-from streamlit import config_util
-from streamlit import development
-from streamlit import env_util
-from streamlit import file_util
-from streamlit import util
+from streamlit import config_util, development, env_util, file_util, util
 from streamlit.config_option import ConfigOption
+from streamlit.errors import StreamlitAPIException
 
 # Config System Global State #
 
@@ -63,11 +59,17 @@ _USER_DEFINED = "<user defined>"
 # or via command-line flag.
 _DEFINED_BY_FLAG = "command-line argument or environment variable"
 
+# Indicates that a config option was defined in an environment variable
+_DEFINED_BY_ENV_VAR = "environment variable"
 
-def set_option(key, value, where_defined=_USER_DEFINED):
+
+def set_option(key: str, value: Any, where_defined: str = _USER_DEFINED) -> None:
     """Set config option.
 
     Run `streamlit config show` in the terminal to see all available options.
+
+    This is an internal API. The public `st.set_option` API is implemented
+    in `set_user_option`.
 
     Parameters
     ----------
@@ -81,14 +83,52 @@ def set_option(key, value, where_defined=_USER_DEFINED):
     where_defined : str
         Tells the config system where this was set.
     """
-
     with _config_lock:
         # Ensure that our config files have been parsed.
         get_config_options()
         _set_option(key, value, where_defined)
 
 
-def get_option(key):
+def set_user_option(key: str, value: Any) -> None:
+    """Set config option.
+
+    Currently, only the following config options can be set within the script itself:
+        * client.caching
+        * client.displayEnabled
+        * deprecation.*
+
+    Calling with any other options will raise StreamlitAPIException.
+
+    Run `streamlit config show` in the terminal to see all available options.
+
+    Parameters
+    ----------
+    key : str
+        The config option key of the form "section.optionName". To see all
+        available options, run `streamlit config show` on a terminal.
+
+    value
+        The new value to assign to this config option.
+
+    """
+    try:
+        opt = _config_options_template[key]
+    except KeyError as ke:
+        raise StreamlitAPIException(
+            "Unrecognized config option: {key}".format(key=key)
+        ) from ke
+    if opt.scriptable:
+        set_option(key, value)
+        return
+
+    raise StreamlitAPIException(
+        "{key} cannot be set on the fly. Set as command line option, e.g. streamlit run script.py --{key}, or in config.toml instead.".format(
+            key=key
+        )
+    )
+
+
+def get_option(key: str) -> Any:
     """Return the current value of a given Streamlit config option.
 
     Run `streamlit config show` in the terminal to see all available options.
@@ -118,7 +158,7 @@ def get_options_for_section(section: str) -> Dict[str, Any]:
         The name of the config section to fetch options for.
 
     Returns
-    ----------
+    -------
     Dict[str, Any]
         A dict mapping the names of the options in the given section (without
         the section name as a prefix) to their values.
@@ -133,7 +173,7 @@ def get_options_for_section(section: str) -> Dict[str, Any]:
         return options_for_section
 
 
-def _create_section(section, description):
+def _create_section(section: str, description: str) -> None:
     """Create a config section and store it globally in this module."""
     assert section not in _section_descriptions, (
         'Cannot define section "%s" twice.' % section
@@ -142,17 +182,18 @@ def _create_section(section, description):
 
 
 def _create_option(
-    key,
-    description=None,
-    default_val=None,
-    scriptable=False,
-    visibility="visible",
-    deprecated=False,
-    deprecation_text=None,
-    expiration_date=None,
-    replaced_by=None,
-    type_=str,
-):
+    key: str,
+    description: Optional[str] = None,
+    default_val: Optional[Any] = None,
+    scriptable: bool = False,
+    visibility: str = "visible",
+    deprecated: bool = False,
+    deprecation_text: Optional[str] = None,
+    expiration_date: Optional[str] = None,
+    replaced_by: Optional[str] = None,
+    type_: type = str,
+    sensitive: bool = False,
+) -> ConfigOption:
     '''Create a ConfigOption and store it globally in this module.
 
     There are two ways to create a ConfigOption:
@@ -199,6 +240,7 @@ def _create_option(
         expiration_date=expiration_date,
         replaced_by=replaced_by,
         type_=type_,
+        sensitive=sensitive,
     )
     assert (
         option.section in _section_descriptions
@@ -211,7 +253,7 @@ def _create_option(
     return option
 
 
-def _delete_option(key):
+def _delete_option(key: str) -> None:
     """Remove a ConfigOption by key from the global store.
 
     Only for use in testing.
@@ -220,6 +262,7 @@ def _delete_option(key):
         del _config_options_template[key]
         del cast(Dict[str, ConfigOption], _config_options)[key]
     except Exception:
+        # We don't care if the option already doesn't exist.
         pass
 
 
@@ -239,24 +282,25 @@ _create_option(
         """,
     default_val=False,
     type_=bool,
+    deprecated=True,
+    deprecation_text="global.disableWatchdogWarning has been deprecated and will be removed in a future version.",
+    expiration_date="2024-01-20",
 )
+
 
 _create_option(
-    "global.sharingMode",
-    visibility="hidden",
+    "global.disableWidgetStateDuplicationWarning",
     description="""
-        Configure the ability to share apps to the cloud.
+        By default, Streamlit displays a warning when a user sets both a widget
+        default value in the function defining the widget and a widget value via
+        the widget's key in `st.session_state`.
 
-        Should be set to one of these values:
-        - "off" : turn off sharing.
-        - "s3" : share to S3, based on the settings under the [s3] section of
-          this config file.
-        - "file" : share to a directory on the local machine. This is
-          meaningful only for debugging Streamlit itself, and shouldn't be
-          used for production.
+        If you'd like to turn off this warning, set this to True.
         """,
-    default_val="off",
+    default_val=False,
+    type_=bool,
 )
+
 
 _create_option(
     "global.showWarningOnDirectExecution",
@@ -270,7 +314,7 @@ _create_option(
 
 
 @_create_option("global.developmentMode", visibility="hidden", type_=bool)
-def _global_development_mode():
+def _global_development_mode() -> bool:
     """Are we in development mode.
 
     This option defaults to True if and only if Streamlit wasn't installed
@@ -280,6 +324,7 @@ def _global_development_mode():
         not env_util.is_pex()
         and "site-packages" not in __file__
         and "dist-packages" not in __file__
+        and "__pypackages__" not in __file__
     )
 
 
@@ -295,19 +340,9 @@ _create_option(
     replaced_by="logger.level",
 )
 
-
-@_create_option("global.unitTest", visibility="hidden", type_=bool)
-def _global_unit_test():
-    """Are we in a unit test?
-
-    This option defaults to False.
-    """
-    return False
-
-
 _create_option(
-    "global.metrics",
-    description="Whether to serve prometheus metrics from /metrics.",
+    "global.unitTest",
+    description="Are we in a unit test?",
     visibility="hidden",
     default_val=False,
     type_=bool,
@@ -340,20 +375,44 @@ _create_option(
     type_=int,
 )
 
+_create_option(
+    "global.storeCachedForwardMessagesInMemory",
+    description="""If True, store cached ForwardMsgs in backend memory.
+        This is an internal flag to validate a potential removal of the in-memory
+        forward message cache.""",
+    visibility="hidden",
+    default_val=True,
+    type_=bool,
+)
+
+_create_option(
+    "global.dataFrameSerialization",
+    description="""
+        DataFrame serialization.
+
+        Acceptable values:
+        - 'legacy': Serialize DataFrames using Streamlit's custom format. Slow
+          but battle-tested.
+        - 'arrow': Serialize DataFrames using Apache Arrow. Much faster and versatile.""",
+    default_val="arrow",
+    type_=str,
+    deprecated=True,
+    deprecation_text="Legacy serialization has been removed. All dataframes will be serialized using Apache Arrow.",
+    expiration_date="2023-11-01",
+)
 
 # Config Section: Logger #
 _create_section("logger", "Settings to customize Streamlit log messages.")
 
 
 @_create_option("logger.level", type_=str)
-def _logger_log_level():
+def _logger_log_level() -> str:
     """Level of logging: 'error', 'warning', 'info', or 'debug'.
 
     Default: 'info'
     """
-
     if get_option("global.logLevel"):
-        return get_option("global.logLevel")
+        return str(get_option("global.logLevel"))
     elif get_option("global.developmentMode"):
         return "debug"
     else:
@@ -361,13 +420,13 @@ def _logger_log_level():
 
 
 @_create_option("logger.messageFormat", type_=str)
-def _logger_message_format():
+def _logger_message_format() -> str:
     """String format for logging messages. If logger.datetimeFormat is set,
     logger messages will default to `%(asctime)s.%(msecs)03d %(message)s`. See
     [Python's documentation](https://docs.python.org/2.6/library/logging.html#formatter-objects)
     for available attributes.
 
-    Default: None
+    Default: "%(asctime)s %(message)s"
     """
     if get_option("global.developmentMode"):
         from streamlit.logger import DEFAULT_LOG_MESSAGE
@@ -377,16 +436,36 @@ def _logger_message_format():
         return "%(asctime)s %(message)s"
 
 
+_create_option(
+    "logger.enableRich",
+    description="""
+        Controls whether uncaught app exceptions are logged via the rich library.
+
+        If True and if rich is installed, exception tracebacks will be logged with syntax highlighting and formatting.
+        Rich tracebacks are easier to read and show more code than standard Python tracebacks.
+
+        If set to False, the default Python traceback formatting will be used.""",
+    default_val=False,
+    visibility="hidden",
+    type_=bool,
+    scriptable=True,
+)
+
 # Config Section: Client #
 
 _create_section("client", "Settings for scripts that use Streamlit.")
 
 _create_option(
     "client.caching",
-    description="Whether to enable st.cache.",
+    description="""
+        Whether to enable st.cache. This does not affect st.cache_data or
+        st.cache_resource.""",
     default_val=True,
     type_=bool,
     scriptable=True,
+    deprecated=True,
+    deprecation_text="client.caching has been deprecated and is not required anymore for our new caching commands.",
+    expiration_date="2024-01-20",
 )
 
 _create_option(
@@ -396,18 +475,53 @@ _create_option(
     default_val=True,
     type_=bool,
     scriptable=True,
+    deprecated=True,
+    deprecation_text="client.displayEnabled has been deprecated and will be removed in a future version.",
+    expiration_date="2024-01-20",
 )
 
 _create_option(
     "client.showErrorDetails",
     description="""
-        Controls whether uncaught app exceptions are displayed in the browser.
-        By default, this is set to True and Streamlit displays app exceptions
-        and associated tracebacks in the browser.
+        Controls whether uncaught app exceptions and deprecation warnings
+        are displayed in the browser. By default, this is set to True and
+        Streamlit displays app exceptions and associated tracebacks, and
+        deprecation warnings, in the browser.
 
-        If set to False, an exception will result in a generic message being
-        shown in the browser, and exceptions and tracebacks will be printed to
-        the console only.""",
+        If set to False, deprecation warnings and full exception messages
+        will print to the console only. Exceptions will still display in the
+        browser with a generic error message. For now, the exception type and
+        traceback show in the browser also, but they will be removed in the
+        future.""",
+    default_val=True,
+    type_=bool,
+    scriptable=True,
+)
+
+_create_option(
+    "client.toolbarMode",
+    description="""
+        Change the visibility of items in the toolbar, options menu,
+        and settings dialog (top right of the app).
+
+        Allowed values:
+        * "auto"      : Show the developer options if the app is accessed through
+                        localhost or through Streamlit Community Cloud as a developer.
+                        Hide them otherwise.
+        * "developer" : Show the developer options.
+        * "viewer"    : Hide the developer options.
+        * "minimal"   : Show only options set externally (e.g. through
+                        Streamlit Community Cloud) or through st.set_page_config.
+                        If there are no options left, hide the menu.
+""",
+    default_val="auto",
+    type_=str,
+    scriptable=True,
+)
+
+_create_option(
+    "client.showSidebarNavigation",
+    description="""Controls whether the default sidebar page navigation in a multi-page app is displayed.""",
     default_val=True,
     type_=bool,
     scriptable=True,
@@ -436,6 +550,9 @@ _create_option(
         """,
     default_val=False,
     type_=bool,
+    deprecated=True,
+    deprecation_text="runner.installTracer has been deprecated and will be removed in a future version.",
+    expiration_date="2024-01-20",
 )
 
 _create_option(
@@ -445,6 +562,9 @@ _create_option(
         prevent Python crashing.
         """,
     default_val=True,
+    deprecated=True,
+    deprecation_text="runner.fixMatplotlib has been deprecated and will be removed in a future version.",
+    expiration_date="2024-01-20",
     type_=bool,
 )
 
@@ -458,6 +578,49 @@ _create_option(
         """,
     default_val=True,
     type_=bool,
+    visibility="hidden",
+)
+
+_create_option(
+    "runner.fastReruns",
+    description="""
+        Handle script rerun requests immediately, rather than waiting for script
+        execution to reach a yield point. This makes Streamlit much more
+        responsive to user interaction, but it can lead to race conditions in
+        apps that mutate session_state data outside of explicit session_state
+        assignment statements.
+    """,
+    default_val=True,
+    type_=bool,
+)
+
+_create_option(
+    "runner.enforceSerializableSessionState",
+    description="""
+        Raise an exception after adding unserializable data to Session State.
+        Some execution environments may require serializing all data in Session
+        State, so it may be useful to detect incompatibility during development,
+        or when the execution environment will stop supporting it in the future.
+    """,
+    default_val=False,
+    type_=bool,
+)
+
+_create_option(
+    "runner.enumCoercion",
+    description="""
+        Adjust how certain 'options' widgets like radio, selectbox, and
+        multiselect coerce Enum members when the Enum class gets
+        re-defined during a script re-run.
+
+        Allowed values:
+        * "off": Disables Enum coercion.
+        * "nameOnly": Enum classes can be coerced if their member names match.
+        * "nameAndValue": Enum classes can be coerced if their member names AND
+          member values match.
+    """,
+    default_val="nameOnly",
+    type_=str,
 )
 
 # Config Section: Server #
@@ -494,9 +657,9 @@ _create_option(
 )
 
 
-@_create_option("server.cookieSecret", type_=str)
+@_create_option("server.cookieSecret", type_=str, sensitive=True)
 @util.memoize
-def _server_cookie_secret():
+def _server_cookie_secret() -> str:
     """Symmetric key used to produce signed cookies. If deploying on multiple replicas, this should
     be set to the same value across all replicas to ensure they all share the same secret.
 
@@ -506,15 +669,12 @@ def _server_cookie_secret():
 
 
 @_create_option("server.headless", type_=bool)
-def _server_headless():
+def _server_headless() -> bool:
     """If false, will attempt to open a browser window on start.
 
     Default: false unless (1) we are on a Linux box where DISPLAY is unset, or
-    (2) server.liveSave is set.
+    (2) we are running in the Streamlit Atom plugin.
     """
-    if get_option("server.liveSave"):
-        return True
-
     if env_util.IS_LINUX_OR_BSD and not os.getenv("DISPLAY"):
         # We're running in Linux and DISPLAY is unset
         return True
@@ -526,36 +686,28 @@ def _server_headless():
     return False
 
 
-@_create_option("server.liveSave", type_=bool, visibility="hidden")
-def _server_live_save():
-    """Immediately share the app in such a way that enables live
-    monitoring, and post-run analysis.
+_create_option(
+    "server.runOnSave",
+    description="""
+        Automatically rerun script when the file is modified on disk.
+        """,
+    default_val=False,
+    type_=bool,
+)
 
-    Default: false
-    """
-    return False
-
-
-@_create_option("server.runOnSave", type_=bool)
-def _server_run_on_save():
-    """Automatically rerun script when the file is modified on disk.
-
-    Default: false
-    """
-    return False
-
-
-@_create_option("server.allowRunOnSave", type_=bool, visibility="hidden")
-def _server_allow_run_on_save():
-    """Allows users to automatically rerun when app is updated.
-
-    Default: true
-    """
-    return True
+_create_option(
+    "server.allowRunOnSave",
+    description="""
+        Allows users to automatically rerun when app is updated.
+        """,
+    visibility="hidden",
+    default_val=True,
+    type_=bool,
+)
 
 
 @_create_option("server.address")
-def _server_address():
+def _server_address() -> Optional[str]:
     """The address where the server will listen for client and browser
     connections. Use this if you want to bind the server to a specific address.
     If set, the server will only be accessible from this address, and not from
@@ -566,15 +718,28 @@ def _server_address():
     return None
 
 
-@_create_option("server.port", type_=int)
-def _server_port():
-    """The port where the server will listen for browser
-    connections.
+_create_option(
+    "server.port",
+    description="""
+        The port where the server will listen for browser connections.""",
+    default_val=8501,
+    type_=int,
+)
 
-    Default: 8501
-    """
-    return 8501
+_create_option(
+    "server.scriptHealthCheckEnabled",
+    visibility="hidden",
+    description="""
+    Flag for enabling the script health check endpoint. It's used for checking if
+    a script loads successfully. On success, the endpoint will return a 200
+    HTTP status code. On failure, the endpoint will return a 503 HTTP status code.
 
+    Note: This is an experimental Streamlit internal API. The API is subject
+    to change anytime so this should be used at your own risk
+    """,
+    default_val=False,
+    type_=bool,
+)
 
 _create_option(
     "server.baseUrlPath",
@@ -585,84 +750,101 @@ _create_option(
     type_=str,
 )
 
-
 # TODO: Rename to server.enableCorsProtection.
-@_create_option("server.enableCORS", type_=bool)
-def _server_enable_cors():
-    """Enables support for Cross-Origin Request Sharing (CORS) protection, for added security.
+_create_option(
+    "server.enableCORS",
+    description="""
+    Enables support for Cross-Origin Resource Sharing (CORS) protection, for added security.
 
     Due to conflicts between CORS and XSRF, if `server.enableXsrfProtection` is on and
     `server.enableCORS` is off at the same time, we will prioritize `server.enableXsrfProtection`.
-
-    Default: true
-    """
-    return True
-
-
-@_create_option("server.enableXsrfProtection", type_=bool)
-def _server_enable_xsrf_protection():
-    """Enables support for Cross-Site Request Forgery (XSRF) protection, for added security.
-
-    Due to conflicts between CORS and XSRF, if `server.enableXsrfProtection` is on and
-    `server.enableCORS` is off at the same time, we will prioritize `server.enableXsrfProtection`.
-
-    Default: true
-    """
-    return True
+    """,
+    default_val=True,
+    type_=bool,
+)
 
 
-@_create_option("server.maxUploadSize", type_=int)
-def _server_max_upload_size():
-    """Max size, in megabytes, for files uploaded with the file_uploader.
+_create_option(
+    "server.enableXsrfProtection",
+    description="""
+        Enables support for Cross-Site Request Forgery (XSRF) protection, for added security.
 
-    Default: 200
-    """
-    # If this default is changed, please also update the docstring
-    # for `DeltaGenerator.file_uploader`.
-    return 200
+        Due to conflicts between CORS and XSRF, if `server.enableXsrfProtection` is on and
+        `server.enableCORS` is off at the same time, we will prioritize `server.enableXsrfProtection`.
+        """,
+    default_val=True,
+    type_=bool,
+)
 
+_create_option(
+    "server.maxUploadSize",
+    description="""
+        Max size, in megabytes, for files uploaded with the file_uploader.
+        """,
+    default_val=200,  # If this default is changed, please also update the docstring for `DeltaGenerator.file_uploader`.
+    type_=int,
+)
 
-@_create_option("server.enableWebsocketCompression", type_=bool)
-def _server_enable_websocket_compression():
-    """Enables support for websocket compression.
+_create_option(
+    "server.maxMessageSize",
+    description="""
+        Max size, in megabytes, of messages that can be sent via the WebSocket connection.
+        """,
+    default_val=200,
+    type_=int,
+)
 
-    Default: true
-    """
-    return True
+_create_option(
+    "server.enableWebsocketCompression",
+    description="""
+        Enables support for websocket compression.
+        """,
+    default_val=False,
+    type_=bool,
+)
 
+_create_option(
+    "server.enableStaticServing",
+    description="""
+        Enable serving files from a `static` directory in the running app's directory.
+        """,
+    default_val=False,
+    type_=bool,
+)
 
 # Config Section: Browser #
 
-_create_section("browser", "Configuration of browser front-end.")
+_create_section("browser", "Configuration of non-UI browser options.")
 
 
-@_create_option("browser.serverAddress")
-def _browser_server_address():
-    """Internet address where users should point their browsers in order to
-    connect to the app. Can be IP address or DNS name and path.
+_create_option(
+    "browser.serverAddress",
+    description="""
+        Internet address where users should point their browsers in order to
+        connect to the app. Can be IP address or DNS name and path.
 
-    This is used to:
-    - Set the correct URL for CORS and XSRF protection purposes.
-    - Show the URL on the terminal
-    - Open the browser
-    - Tell the browser where to connect to the server when in liveSave mode.
+        This is used to:
+        - Set the correct URL for CORS and XSRF protection purposes.
+        - Show the URL on the terminal
+        - Open the browser
+        """,
+    default_val="localhost",
+    type_=str,
+)
 
-    Default: 'localhost'
-    """
-    return "localhost"
 
-
-@_create_option("browser.gatherUsageStats", type_=bool)
-def _gather_usage_stats():
-    """Whether to send usage statistics to Streamlit.
-
-    Default: true
-    """
-    return True
+_create_option(
+    "browser.gatherUsageStats",
+    description="""
+        Whether to send usage statistics to Streamlit.
+        """,
+    default_val=True,
+    type_=bool,
+)
 
 
 @_create_option("browser.serverPort", type_=int)
-def _browser_server_port():
+def _browser_server_port() -> int:
     """Port where users should point their browsers in order to connect to the
     app.
 
@@ -670,11 +852,68 @@ def _browser_server_port():
     - Set the correct URL for CORS and XSRF protection purposes.
     - Show the URL on the terminal
     - Open the browser
-    - Tell the browser where to connect to the server when in liveSave mode.
 
     Default: whatever value is set in server.port.
     """
-    return get_option("server.port")
+    return int(get_option("server.port"))
+
+
+_SSL_PRODUCTION_WARNING = [
+    "DO NOT USE THIS OPTION IN A PRODUCTION ENVIRONMENT. It has not gone through "
+    "security audits or performance tests. For the production environment, "
+    "we recommend performing SSL termination by the load balancer or the reverse proxy."
+]
+
+_create_option(
+    "server.sslCertFile",
+    description=(
+        f"""
+        Server certificate file for connecting via HTTPS.
+        Must be set at the same time as "server.sslKeyFile".
+
+        {_SSL_PRODUCTION_WARNING}
+        """
+    ),
+)
+
+_create_option(
+    "server.sslKeyFile",
+    description=(
+        f"""
+        Cryptographic key file for connecting via HTTPS.
+        Must be set at the same time as "server.sslCertFile".
+
+        {_SSL_PRODUCTION_WARNING}
+        """
+    ),
+)
+
+# Config Section: UI #
+
+_create_section("ui", "Configuration of UI elements displayed in the browser.")
+
+_create_option(
+    "ui.hideTopBar",
+    description="""
+    Flag to hide most of the UI elements found at the top of a Streamlit app.
+
+    NOTE: This does *not* hide the main menu in the top-right of an app.
+    """,
+    default_val=False,
+    type_=bool,
+    visibility="hidden",
+)
+
+_create_option(
+    "ui.hideSidebarNav",
+    description="Flag to hide the sidebar page navigation component.",
+    default_val=False,
+    type_=bool,
+    deprecated=True,
+    deprecation_text="ui.hideSidebarNav has been deprecated and replaced with client.showSidebarNavigation. It will be removed in a future version.",
+    expiration_date="2024-01-20",
+    visibility="hidden",
+)
 
 
 # Config Section: Mapbox #
@@ -688,6 +927,37 @@ _create_option(
                 To get a token for yourself, create an account at
                 https://mapbox.com. It's free (for moderate usage levels)!""",
     default_val="",
+    sensitive=True,
+)
+
+
+# Config Section: Magic #
+
+_create_section("magic", "Settings for how Streamlit pre-processes your script")
+
+_create_option(
+    "magic.displayRootDocString",
+    description="""
+        Streamlit's "magic" parser typically skips strings that appear to be
+        docstrings. When this flag is set to True, Streamlit will instead display
+        the root-level docstring in the app, just like any other magic string.
+        This is useful for things like notebooks.
+        """,
+    visibility="hidden",
+    default_val=False,
+    type_=bool,
+)
+
+_create_option(
+    "magic.displayLastExprIfNoSemicolon",
+    description="""
+        Make Streamlit's "magic" parser always display the last expression in the
+        root file if it has no semicolon at the end. This matches the behavior of
+        Jupyter notebooks, for example.
+        """,
+    visibility="hidden",
+    default_val=False,
+    type_=bool,
 )
 
 
@@ -698,17 +968,19 @@ _create_section("deprecation", "Configuration to show or hide deprecation warnin
 _create_option(
     "deprecation.showfileUploaderEncoding",
     description="Set to false to disable the deprecation warning for the file uploader encoding.",
-    default_val="True",
-    scriptable="True",
+    default_val=True,
+    scriptable=True,
     type_=bool,
+    deprecated=True,
+    deprecation_text="deprecation.showfileUploaderEncoding has been deprecated and will be removed in a future version.",
     expiration_date="2021-01-06",
 )
 
 _create_option(
     "deprecation.showImageFormat",
     description="Set to false to disable the deprecation warning for the image format parameter.",
-    default_val="True",
-    scriptable="True",
+    default_val=True,
+    scriptable=True,
     type_=bool,
     deprecated=True,
     deprecation_text="The format parameter for st.image has been removed.",
@@ -718,86 +990,10 @@ _create_option(
 _create_option(
     "deprecation.showPyplotGlobalUse",
     description="Set to false to disable the deprecation warning for using the global pyplot instance.",
-    default_val="True",
-    scriptable="True",
+    default_val=True,
+    scriptable=True,
     type_=bool,
 )
-
-# Config Section: S3 #
-
-_create_section("s3", 'Configuration for when global.sharingMode is set to "s3".')
-
-
-@_create_option("s3.bucket")
-def _s3_bucket():
-    """Name of the AWS S3 bucket to save apps.
-
-    Default: (unset)
-    """
-    return None
-
-
-@_create_option("s3.url")
-def _s3_url():
-    """URL root for external view of Streamlit apps.
-
-    Default: (unset)
-    """
-    return None
-
-
-@_create_option("s3.accessKeyId")
-def _s3_access_key_id():
-    """Access key to write to the S3 bucket.
-
-    Leave unset if you want to use an AWS profile.
-
-    Default: (unset)
-    """
-    return None
-
-
-@_create_option("s3.secretAccessKey")
-def _s3_secret_access_key():
-    """Secret access key to write to the S3 bucket.
-
-    Leave unset if you want to use an AWS profile.
-
-    Default: (unset)
-    """
-    return None
-
-
-_create_option(
-    "s3.keyPrefix",
-    description="""The "subdirectory" within the S3 bucket where to save
-        apps.
-
-        S3 calls paths "keys" which is why the keyPrefix is like a
-        subdirectory. Use "" to mean the root directory.
-        """,
-    default_val="",
-)
-
-_create_option(
-    "s3.region",
-    description="""AWS region where the bucket is located, e.g. "us-west-2".
-
-        Default: (unset)
-        """,
-    default_val=None,
-)
-
-_create_option(
-    "s3.profile",
-    description="""AWS credentials profile to use.
-
-        Leave unset to use your default profile.
-
-        Default: (unset)
-        """,
-    default_val=None,
-)  # If changing the default, change S3Storage.py too.
 
 
 # Config Section: Custom Theme #
@@ -839,7 +1035,7 @@ _create_option(
 )
 
 
-def get_where_defined(key):
+def get_where_defined(key: str) -> str:
     """Indicate where (e.g. in which file) this option was defined.
 
     Parameters
@@ -856,7 +1052,7 @@ def get_where_defined(key):
         return config_options[key].where_defined
 
 
-def _is_unset(option_name):
+def _is_unset(option_name: str) -> bool:
     """Check if a given option has not been set by the user.
 
     Parameters
@@ -874,7 +1070,7 @@ def _is_unset(option_name):
     return get_where_defined(option_name) == ConfigOption.DEFAULT_DEFINITION
 
 
-def is_manually_set(option_name):
+def is_manually_set(option_name: str) -> bool:
     """Check if a given option was actually defined by the user.
 
     Parameters
@@ -906,7 +1102,7 @@ def show_config() -> None:
 # Load Config Files #
 
 
-def _set_option(key, value, where_defined):
+def _set_option(key: str, value: Any, where_defined: str) -> None:
     """Set a config option by key / value pair.
 
     This function assumes that the _config_options dictionary has already been
@@ -925,9 +1121,32 @@ def _set_option(key, value, where_defined):
     assert (
         _config_options is not None
     ), "_config_options should always be populated here."
-    assert key in _config_options, 'Key "%s" is not defined.' % key
+    if key not in _config_options:
+        # Import logger locally to prevent circular references
+        from streamlit.logger import get_logger
 
-    _config_options[key].set_value(value, where_defined)
+        LOGGER = get_logger(__name__)
+
+        LOGGER.warning(
+            f'"{key}" is not a valid config option. If you previously had this config option set, it may have been removed.'
+        )
+
+    else:
+        _config_options[key].set_value(value, where_defined)
+
+
+def _update_config_with_sensitive_env_var(config_options: Dict[str, ConfigOption]):
+    """Update the config system by parsing the environment variable.
+
+    This should only be called from get_config_options.
+    """
+    for opt_name, opt_val in config_options.items():
+        if not opt_val.sensitive:
+            continue
+        env_var_value = os.environ.get(opt_val.env_var)
+        if env_var_value is None:
+            continue
+        _set_option(opt_name, env_var_value, _DEFINED_BY_ENV_VAR)
 
 
 def _update_config_with_toml(raw_toml: str, where_defined: str) -> None:
@@ -948,14 +1167,10 @@ def _update_config_with_toml(raw_toml: str, where_defined: str) -> None:
     for section, options in parsed_config_file.items():
         for name, value in options.items():
             value = _maybe_read_env_variable(value)
-            _set_option(
-                "%(section)s.%(name)s" % {"section": section, "name": name},
-                value,
-                where_defined,
-            )
+            _set_option(f"{section}.{name}", value, where_defined)
 
 
-def _maybe_read_env_variable(value):
+def _maybe_read_env_variable(value: Any) -> Any:
     """If value is "env:foo", return value of environment variable "foo".
 
     If value is not in the shape above, returns the value right back.
@@ -972,7 +1187,6 @@ def _maybe_read_env_variable(value):
         variable.
 
     """
-
     if isinstance(value, str) and value.startswith("env:"):
         var_name = value[len("env:") :]
         env_var = os.environ.get(var_name)
@@ -990,7 +1204,7 @@ def _maybe_read_env_variable(value):
     return value
 
 
-def _maybe_convert_to_number(v):
+def _maybe_convert_to_number(v: Any) -> Any:
     """Convert v to int or float, or leave it as is."""
     try:
         return int(v)
@@ -1038,7 +1252,7 @@ def get_config_options(
         Config options that we received via CLI flag.
 
     Returns
-    ----------
+    -------
     Dict[str, ConfigOption]
         An ordered dict that maps config option names to their values.
     """
@@ -1067,10 +1281,12 @@ def get_config_options(
             if not os.path.exists(filename):
                 continue
 
-            with open(filename, "r") as input:
+            with open(filename, "r", encoding="utf-8") as input:
                 file_contents = input.read()
 
             _update_config_with_toml(file_contents, filename)
+
+        _update_config_with_sensitive_env_var(_config_options)
 
         for opt_name, opt_val in options_from_flags.items():
             _set_option(opt_name, opt_val, _DEFINED_BY_FLAG)
@@ -1091,15 +1307,13 @@ def get_config_options(
         return _config_options
 
 
-def _check_conflicts():
+def _check_conflicts() -> None:
     # Node-related conflicts
 
     # When using the Node server, we must always connect to 8501 (this is
     # hard-coded in JS). Otherwise, the browser would decide what port to
-    # connect to based on either:
-    #   1. window.location.port, which in dev is going to be (3000)
-    #   2. the serverPort value in manifest.json, which would work, but only
-    #   exists with server.liveSave.
+    # connect to based on window.location.port, which in dev is going to
+    # be (3000)
 
     # Import logger locally to prevent circular references
     from streamlit.logger import get_logger
@@ -1113,46 +1327,6 @@ def _check_conflicts():
 
         assert _is_unset("browser.serverPort"), (
             "browser.serverPort does not work when global.developmentMode is " "true."
-        )
-
-    # Sharing-related conflicts
-    if get_option("global.sharingMode") == "s3":
-        assert is_manually_set("s3.bucket"), (
-            'When global.sharingMode is set to "s3", ' "s3.bucket must also be set"
-        )
-        both_are_set = is_manually_set("s3.accessKeyId") and is_manually_set(
-            "s3.secretAccessKey"
-        )
-        both_are_unset = _is_unset("s3.accessKeyId") and _is_unset("s3.secretAccessKey")
-        assert both_are_set or both_are_unset, (
-            "In config.toml, s3.accessKeyId and s3.secretAccessKey must "
-            "either both be set or both be unset."
-        )
-
-        if is_manually_set("s3.url"):
-            # If s3.url is set, ensure that it's an absolute URL.
-            # An absolute URL starts with either `scheme://` or `//` --
-            # if the configured URL does not start with either prefix,
-            # prepend it with `//` to make it absolute. (If we don't do this,
-            # and the user enters something like `url=myhost.com/reports`, the
-            # browser will assume this is a relative URL, and will prepend
-            # the hostname of the Streamlit instance to the configured URL.)
-            s3_url = get_option("s3.url")
-            parsed = urllib.parse.urlparse(s3_url)
-            if parsed.netloc == "":
-                _set_option("s3.url", "//" + s3_url, get_where_defined("s3.url"))
-
-    elif get_option("global.sharingMode") == "file" and not get_option(
-        "global.developmentMode"
-    ):
-        # Warn users that "sharingMode=file" probably isn't what they meant
-        # to do.
-        LOGGER.warning(
-            "'sharingMode' is set to 'file', but Streamlit is not configured "
-            "for development. This sharingMode is used for debugging "
-            "Streamlit itself, and is not supported for other use-cases. "
-            "\n\nTo remove this warning, set the 'sharingMode' option to "
-            "another value, or remove it from your Streamlit config."
         )
 
     # XSRF conflicts
@@ -1173,7 +1347,7 @@ If cross origin resource sharing is required, please disable server.enableXsrfPr
             )
 
 
-def _set_development_mode():
+def _set_development_mode() -> None:
     development.is_development_mode = get_option("global.developmentMode")
 
 
@@ -1202,9 +1376,15 @@ def on_config_parsed(
     Callable[[], bool]
         A function that the caller can use to deregister func.
     """
+    # We need to use the same receiver when we connect or disconnect on the
+    # Signal. If we don't do this, then the registered receiver won't be released
+    # leading to a memory leak because the Signal will keep a reference of the
+    # callable argument. When the callable argument is an object method, then
+    # the reference to that object won't be released.
+    receiver = lambda _: func_with_lock()
 
     def disconnect():
-        return _on_config_parsed.disconnect(func_with_lock)
+        return _on_config_parsed.disconnect(receiver)
 
     def func_with_lock():
         if lock:
@@ -1216,7 +1396,7 @@ def on_config_parsed(
     if force_connect or not _config_options:
         # weak=False so that we have control of when the on_config_parsed
         # callback is deregistered.
-        _on_config_parsed.connect(lambda _: func_with_lock(), weak=False)
+        _on_config_parsed.connect(receiver, weak=False)
     else:
         func_with_lock()
 
