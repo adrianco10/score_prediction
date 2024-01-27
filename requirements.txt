@@ -5,7 +5,6 @@ async-generator==1.10
 attrs==21.2.0
 backcall==0.2.0
 base58==2.1.0
-beautifulsoup4==4.9.3
 bleach==3.3.0
 blinker==1.4
 cachetools==4.2.2
