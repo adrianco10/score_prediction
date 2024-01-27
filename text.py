@@ -6,20 +6,20 @@ from PIL import Image
 def intro():
     st.markdown(
         "I set out to create a soccer score and result prediction program using Poisson distribution and Python. "
-        "The Poisson Formula is a probablity theory that uses historical sports data to predict outcomes of sporting"
+        "The Poisson Formula is a probablity theory that can be used alongside historical sports data to predict outcomes of sporting"
         " events. ")
     st.markdown(
         "This can be done by other means of course and there are websites and calculators already out there "
-        "but since I have been learning the language for a couple of years"
+        "but since I have been learning Python for a couple of years"
         " now I wanted to challenge myself with a custom project."
         " Specifically the challenge was to use Python to program a tool to dynamically calculate the"
-        " probability of any scorelinefor any given matchup between teams in the Spanish top flight (La Liga) and"
+        " probability of any scoreline for any given matchup between teams in the Spanish top flight (La Liga) and"
         " then use those stats to also predict the result of the game (home win, away win, and tie).")
 
     st.markdown(
         "To be able to use the Poisson formula however we first need to gather quite a bit of data. What follows"
         " is an account of how I went about creating the tool including the code for each major section. So without "
-        "wasting any more time I'm just jumping right into it! To make sure I was doing everything right I used "
+        "wasting any more time I'm just jumping right into it!\n\n To make sure I was doing everything right I used "
         "this page as a guide:https://www.thepunterspage.com/poisson-distribution-betting/.")
 
     st.info("To reiterate: This page walks through the process and steps that I took to create the tool. If you "
@@ -220,7 +220,7 @@ def poisson():
                 " Perhaps in the future I will expand it but for now it's a good enough start since the "
                 "possibility of a 5+ goal game by any individual team is usually pretty low even in ideal conditions.")
     st.markdown(
-        "For an arbitrary example: even for the team with the highest scoring average at home (Barcelona) against a "
+        "As an example: even for the team with the highest scoring average at home (Barcelona) against a "
         "team with the highest average of goals conceded away (Granada) there is only about a 4.1% "
         "chance that Barcelona score 7 goals. If you were keen on placing a very risky (A.K.A unwise) bet of Barcelona "
         "scoring 7 goals in a game, you would have the best chances of winning that bet when Barcelona plays "
@@ -256,7 +256,7 @@ def match_outcomes():
 
 
 def tell_me_odds():
-    st.subheader("Never tell me the odds")
+    st.subheader("Never Tell Me The Odds")
     st.markdown(
         "So with the table above we can determine what the most likely outcome for any given matchup"
         " is. We can take this a step futher though and also use the table to find the estimated chance of "

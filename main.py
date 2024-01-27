@@ -4,7 +4,7 @@ import walkthrough
 
 if __name__ == '__main__':
 
-    st.sidebar.markdown("You can switch between the actual tool and my essay here:")
+    st.sidebar.markdown("You can switch between the actual tool and my walkthrough here:")
     sidebar_button = st.sidebar.selectbox('Walkthrough', ("Walkthrough", "Score Prediction"))
     signature = st.sidebar.subheader('Author:\n\n Adrian Cortes\n\n Email: cortes_10@live.com\n\nLinkedIn:\n'
                                      'https://www.linkedin.com/in/cortesadrian/')
