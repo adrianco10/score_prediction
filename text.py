@@ -45,7 +45,7 @@ def goals_1st():
     st.info("*Pandas is a Python language"
             " software library that is very helpful for tasks that have to do with data manipulation and analysis.")
 
-    with st.beta_expander('View code'):
+    with st.expander('View code'):
         code = "cols_list = ['Squad', 'GF', 'GA', 'GF_away', 'GA_away'] \ndf = pd.read_csv('goals_table.csv', usecols=cols_list)\n" \
                "home_goals = df['GF'].sum() \naway_goals = df['GF_away'].sum()"
         st.code(code, language='python')
@@ -83,7 +83,7 @@ def so_average():
         "see the corresponding score probabilities. We can use the dataframe from above to calculate the new stats we need and add these"
         " as new columns in the same dataframe. Both the updated dataframe and code used are below:")
 
-    with st.beta_expander('View code'):
+    with st.expander('View code'):
         st.code('''def team_goal_averages():
                    cols_list = ['Squad', 'GF', 'GA', 'GF_away', 'GA_away']
                    df = pd.read_csv('goals_table.csv', usecols=cols_list)
@@ -128,7 +128,7 @@ def attack_n_defence():
                  " 4. Defensive strength when playing away"
     st.write(my_string2)
     st.markdown("Once again if you're interested in the code used for this you can click below to expand it:")
-    with st.beta_expander('View Code'):
+    with st.expander('View Code'):
         st.code('''# function takes existing dataframe as argument and uses existing columns to calculate 
                # attack and defense ratings
                def atk_def_strength(df):
@@ -162,7 +162,7 @@ def goal_expectancy():
         "a home and away team and for each one you will see their respective attack and defence strengths. You "
         "can then click the button at the bottom to calculate their goal expectancy.")
     st.markdown("Code is below.")
-    with st.beta_expander('View Code'):
+    with st.expander('View Code'):
         st.code('''l_col, r_col = st.beta_columns(2)
                with st.form('Home and Away'):
                    home = [l_col.selectbox('Home Team', atk_def.index)]
