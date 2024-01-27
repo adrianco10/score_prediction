@@ -175,7 +175,7 @@ def walkthrough():
     st.dataframe(atk_def)
     text.goal_expectancy()
 
-    l_col, r_col = st.beta_columns(2)
+    l_col, r_col = st.columns(2)
     with st.form('Home and Away'):
         home = [l_col.selectbox('Home Team', atk_def.index)]  # use index of team names as selection options
         if team_averages_df['Squad'].isin(home).any():
@@ -214,7 +214,7 @@ def walkthrough():
             text.poisson()
 
             try:
-                left_col2, right_col2 = st.beta_columns(2)
+                left_col2, right_col2 = st.columns(2)
                 home_goal_probabilities, away_goal_probabilities = poisson_formula(xgoals_home, xgoals_away)
                 left_col2.subheader(f"{home}'s goal probability playing {away} at home")
                 left_col2.dataframe(home_goal_probabilities)

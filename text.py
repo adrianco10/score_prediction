@@ -109,7 +109,7 @@ def attack_n_defence():
         " the dataframe above and adding new columns to represent each team's attack and defence strength, for both "
         " home and away matches.")
 
-    left_col, right_col = st.beta_columns(2)
+    left_col, right_col = st.columns(2)
     left_col.info(
         "**Attack strength is a team’s avg. number of goals scored, divided by the league’s average number of "
         "goals scored**.")
@@ -163,7 +163,7 @@ def goal_expectancy():
         "can then click the button at the bottom to calculate their goal expectancy.")
     st.markdown("Code is below.")
     with st.expander('View Code'):
-        st.code('''l_col, r_col = st.beta_columns(2)
+        st.code('''l_col, r_col = st.columns(2)
                with st.form('Home and Away'):
                    home = [l_col.selectbox('Home Team', atk_def.index)]
                    if team_averages_df['Squad'].isin(home).any():
