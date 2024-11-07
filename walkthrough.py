@@ -232,7 +232,7 @@ def walkthrough():
                 st.dataframe(goal_prob_df)
                 home_win, away_win, tie = team_odds(goal_prob_df)
 
-                with st.beta_expander('View Code'):
+                with st.expander('View Code'):
                     st.code('''
         # take two dataframes as arguments(which contain goal probabilities for home and 
        # away teams and return list containing products of every row of 1st dataframe 
@@ -276,7 +276,7 @@ def walkthrough():
                              f"\n2. Chance that {away} (away) wins = **{away_win}%**" \
                              f"\n3. Chance of a tie = **{tie}%**"
                 st.markdown(my_string4)
-                with st.beta_expander("View Code"):
+                with st.expander("View Code"):
                     st.code('''# function that takes goal probability dataframe as argument and extracts
        # all the probabilities where the home teams wins then sums them together
        # to give probability of home win, away win and tie
