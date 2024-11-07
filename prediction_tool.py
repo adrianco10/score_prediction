@@ -196,7 +196,7 @@ def prediction():
             r_col.info(f"{away}'s goal expectancy is **{xgoals_away}**")
 
             try:
-                left_col2, right_col2 = st.beta_columns(2)
+                left_col2, right_col2 = st.columns(2)
                 home_goal_probabilities, away_goal_probabilities = poisson_formula(xgoals_home, xgoals_away)
                 left_col2.subheader(f"{home}'s goal probability playing {away} at home")
                 left_col2.dataframe(home_goal_probabilities)
